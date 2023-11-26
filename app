@@ -1,0 +1,76 @@
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from datetime import datetime
+from typing import List
+
+app = FastAPI()
+
+class Cliente(BaseModel):
+    nome: str
+    atendimento: str
+    posicao: int
+    data_chegada: str
+    atendido: bool
+
+fila_atendimento: List[Cliente] = []
+
+@app.get("/fila", response_model=List[Cliente])
+def obter_fila():
+    clientes_na_fila = [cliente for cliente in fila_atendimento if not cliente.atendido]
+    return clientes_na_fila
+
+@app.get("/fila/{id}", response_model=Cliente)
+def obter_cliente_na_posicao(id: int):
+    if id >= len(fila_atendimento) or id < 0 or fila_atendimento[id].atendido:
+        raise HTTPException(status_code=404, detail="Posição na fila não encontrada")
+    return fila_atendimento[id]
+
+@app.post("/fila", response_model=Cliente)
+def adicionar_cliente_na_fila(cliente: Cliente):
+    if len(cliente.nome) > 20:
+        raise HTTPException(status_code=400, detail="O campo 'nome' deve ter no máximo 20 caracteres")
+    if cliente.atendimento not in ["N", "P"]:
+        raise HTTPException(status_code=400, detail="O campo 'atendimento' deve ser 'N' ou 'P'")
+    
+    # Adicionando lógica de prioridade
+    if cliente.atendimento == "P":
+        fila_prioritaria = [c for c in fila_atendimento if c.atendimento == "P"]
+        posicao = len(fila_prioritaria)
+    else:
+        posicao = len(fila_atendimento)
+    
+    novo_cliente = Cliente(
+        nome=cliente.nome,
+        atendimento=cliente.atendimento,
+        posicao=posicao,
+        data_chegada=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        atendido=False
+    )
+    
+    fila_atendimento.append(novo_cliente)
+    return novo_cliente
+
+@app.put("/fila")
+def atualizar_fila():
+    if not fila_atendimento or fila_atendimento[0].atendido:
+        raise HTTPException(status_code=400, detail="A fila está vazia")
+    
+    fila_atendimento[0].posicao = -1
+    fila_atendimento[0].atendido = True
+    
+    for i, cliente in enumerate(fila_atendimento[1:], start=1):
+        cliente.posicao -= 1
+    
+    return {"message": "Fila atualizada com sucesso"}
+
+@app.delete("/fila/{id}", response_model=Cliente)
+def remover_cliente_da_fila(id: int):
+    if id >= len(fila_atendimento) or id < 0 or fila_atendimento[id].atendido:
+        raise HTTPException(status_code=404, detail="Posição na fila não encontrada")
+    
+    cliente_removido = fila_atendimento.pop(id)
+    
+    for i, cliente in enumerate(fila_atendimento[id:], start=id):
+        cliente.posicao -= 1
+    
+    return cliente_removido
